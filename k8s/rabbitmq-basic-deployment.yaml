@@ -16,6 +16,14 @@ spec:
       labels:
         app: rabbitmq-basic
     spec:
+      # El contenedor corre directamente como el usuario `rabbitmq` (uid/gid 999) para
+      # esquivar `gosu`: con el kernel 7.0.0-43 del nodo (reinicio del 2026-11-18) `gosu`
+      # gira al 100% de CPU y nunca ejecuta el entrypoint, así que RabbitMQ queda 0/1 sin
+      # abrir el 5672. El entrypoint oficial, al ver que no es root, hace
+      # `exec rabbitmq-server` sin pasar por `gosu`.
+      securityContext:
+        runAsUser: 999
+        runAsGroup: 999
       containers:
         - name: rabbitmq
           image: rabbitmq:3.13-management
@@ -24,38 +32,41 @@ spec:
               name: amqp
             - containerPort: 15672
               name: management
-          env:
-            - name: RABBITMQ_DEFAULT_USER
-              valueFrom:
-                secretKeyRef:
-                  name: rabbitmq-basic-credentials
-                  key: user
-            - name: RABBITMQ_DEFAULT_PASS
-              valueFrom:
-                secretKeyRef:
-                  name: rabbitmq-basic-credentials
-                  key: password
           volumeMounts:
             - name: rabbitmq-storage
               mountPath: /var/lib/rabbitmq
+            # `rabbitmq.conf` viene del ConfigMap `rabbitmq-config` (loopback_users = none y
+            # las credenciales por defecto). Sin él, `guest` no puede conectar desde otros pods.
+            - name: rabbitmq-config
+              mountPath: /etc/rabbitmq/rabbitmq.conf
+              subPath: rabbitmq.conf
           resources:
+            # Solo `requests` (reserva), igual que en producción: un `limits` de memoria baja
+            # el `vm_memory_high_watermark` de RabbitMQ (0.4 del límite) por debajo de su uso
+            # normal y bloquea a los publicadores.
             requests:
               memory: "256Mi"
               cpu: "150m"
-            limits:
-              memory: "512Mi"
-              cpu: "500m"
+          # `rabbitmq-diagnostics ping` responde solo cuando el nodo está sano. Un contenedor
+          # trabado (el caso de `gosu`) no abre el 5672 y la readiness `tcpSocket` no lo
+          # distingue de "arrancando"; la liveness sí, y kubelet lo reinicia en vez de dejarlo
+          # caído durante horas sin que nadie lo note.
           livenessProbe:
             exec:
               command: ["rabbitmq-diagnostics", "-q", "ping"]
             initialDelaySeconds: 30
             periodSeconds: 20
+            failureThreshold: 3
           readinessProbe:
-            exec:
-              command: ["rabbitmq-diagnostics", "-q", "check_port_connectivity"]
-            initialDelaySeconds: 15
+            tcpSocket:
+              port: 5672
+            initialDelaySeconds: 20
             periodSeconds: 10
+            timeoutSeconds: 5
       volumes:
         - name: rabbitmq-storage
           persistentVolumeClaim:
             claimName: rabbitmq-basic-pvc
+        - name: rabbitmq-config
+          configMap:
+            name: rabbitmq-config

@@ -15,19 +15,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Create rabbitmq-basic secret
-        run: |
-          kubectl create secret generic rabbitmq-basic-credentials \
-            --from-literal=user="${{ secrets.RABBITMQ_USER }}" \
-            --from-literal=password="${{ secrets.RABBITMQ_PASSWORD }}" \
-            --dry-run=client -o yaml | kubectl apply -f -
-
       - name: Apply manifests
         run: |
           kubectl apply -f k8s/rabbitmq-basic-pvc.yaml
+          kubectl apply -f k8s/rabbitmq-config.yaml
           kubectl apply -f k8s/rabbitmq-basic-deployment.yaml
           kubectl apply -f k8s/rabbitmq-basic-service.yaml
 
       - name: Wait for rollout
         run: |
-          kubectl rollout status deployment rabbitmq-basic --timeout=120s
+          kubectl rollout status deployment rabbitmq-basic --timeout=180s

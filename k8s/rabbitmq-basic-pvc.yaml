@@ -9,5 +9,7 @@ spec:
     - ReadWriteOnce
   storageClassName: local-path
   resources:
+    # 1Gi: es el tamaño del PVC vivo (creado a mano). No se puede bajar por API, así que el
+    # manifiesto tiene que coincidir para que `kubectl apply` no falle.
     requests:
-      storage: 2Gi
+      storage: 1Gi

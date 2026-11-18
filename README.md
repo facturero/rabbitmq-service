@@ -9,23 +9,24 @@ Proyecto de **infraestructura básica** (no es un microservicio) para desplegar 
 
 ## Puertos expuestos
 
-| Servicio | Puerto interno | NodePort | Acceso |
-|---|---|---|---|
-| RabbitMQ (AMQP) | 5672 | **30672** | `amqp://<ip-servidor>:30672` |
-| RabbitMQ (Management UI) | 15672 | **31672** | `http://<ip-servidor>:31672` |
+El Service interno se llama **`rabbitmq`** (ClusterIP) y es por donde entran los demás
+servicios: `amqp://rabbitmq:5672`. La Management UI no se expone fuera del clúster; se mira
+con un port-forward:
 
-## Configuración inicial (una sola vez)
+```bash
+kubectl port-forward svc/rabbitmq 15672:15672   # http://localhost:15672  (guest/guest)
+```
 
-1. Agrega estos **Secrets** en GitHub (Settings → Secrets and variables → Actions) del repo `rabbitmq-basic`:
+Las credenciales por defecto (`guest`/`guest`) viven en el ConfigMap `rabbitmq-config`
+(`k8s/rabbitmq-config.yaml`), que además trae `loopback_users = none` para que `guest` pueda
+conectar desde otros pods. Los env `RABBITMQ_DEFAULT_USER`/`RABBITMQ_DEFAULT_PASS` **no** los
+lee la imagen 3.13 (solo `RABBITMQ_DEFAULT_ALLOC_ARGS`): no sirven para esto.
 
-   | Secret | Ejemplo |
-   |---|---|
-   | `RABBITMQ_USER` | `admin` |
-   | `RABBITMQ_PASSWORD` | contraseña admin |
+## Configuración inicial
 
-2. Confirma que tu runner self-hosted tiene `kubectl` configurado apuntando a tu cluster k3s.
+1. Confirma que tu runner self-hosted tiene `kubectl` configurado apuntando a tu cluster k3s.
 
-3. Sube el proyecto:
+2. Sube el proyecto:
 
    ```bash
    git add .
@@ -59,5 +60,7 @@ kubectl logs deployment/rabbitmq-basic
 
 ## Notas
 
-- **Recursos:** límites de memoria/CPU ajustados pensando en un servidor con ~7GB de RAM (ver `resources` en `k8s/rabbitmq-basic-deployment.yaml`).
+- **Recursos:** solo `requests` (reserva) de memoria/CPU, pensando en un servidor con ~7GB de RAM (ver `resources` en `k8s/rabbitmq-basic-deployment.yaml`). Sin `limits` a propósito: un tope de memoria baja el `vm_memory_high_watermark` de RabbitMQ por debajo de su uso normal y bloquea a los publicadores.
+- **`runAsUser: 999`:** el contenedor corre directamente como el usuario `rabbitmq` para esquivar `gosu`. Con el kernel `7.0.0-43` del nodo (reinicio del 2026-11-18) `gosu` gira al 100% de CPU y nunca ejecuta el entrypoint, dejando RabbitMQ en `0/1`. El entrypoint oficial, al ver que no es root, arranca el broker sin `gosu`.
+- **livenessProbe:** `rabbitmq-diagnostics -q ping` reinicia el contenedor si se queda trabado. Sin ella, el pod del 2026-11-18 estuvo `0/1` durante horas sin que kubelet lo reiniciara.
 - **Namespace:** se despliega en `default`.

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rabbitmq-config
+  labels:
+    app: rabbitmq-basic
+data:
+  # El usuario por defecto de RabbitMQ solo acepta conexiones de loopback (127.0.0.1). Como
+  # todos los servicios entran desde otros pods (`amqp://rabbitmq:5672`), hay que abrirlo.
+  # `default_user`/`default_pass` crean ese usuario cuando la base de mnesia está vacía; los
+  # env `RABBITMQ_DEFAULT_USER`/`RABBITMQ_DEFAULT_PASS` que traía el Deployment NO los lee la
+  # imagen 3.13 (solo `RABBITMQ_DEFAULT_ALLOC_ARGS`), por eso las credenciales viven aquí.
+  rabbitmq.conf: |
+    loopback_users = none
+    default_user = guest
+    default_pass = guest
